@@ -41,6 +41,7 @@ class Whoop5RRSqliteTest {
             "seq INTEGER NOT NULL, synced INTEGER NOT NULL, ord INTEGER, srcChannel INTEGER, tsSuspect INTEGER, " +
             "PRIMARY KEY(deviceId, ts, rrMs, seq))")
         sql(WhoopDatabase.RR_SOURCE_INDEX_SQL)
+        sql(WhoopDatabase.RR_SOURCE_DEVICE_INDEX_SQL)
         sql("CREATE TABLE pairedDevice(id TEXT PRIMARY KEY, brand TEXT, model TEXT, status TEXT)")
         sql("CREATE TABLE hrSample(deviceId TEXT, ts INTEGER, bpm INTEGER, PRIMARY KEY(deviceId, ts))")
         listOf("ppgHrSample", "respSample", "gravitySample", "sleepStateSample", "event",
@@ -426,6 +427,34 @@ class Whoop5RRSqliteTest {
         val rr = day.filter { it.contains("rrInterval") }
         assertTrue(day.toString(), rr.isNotEmpty())
         assertTrue("every R-R read is bounded by the night: $rr", rr.all { it.contains("ts>") })
+    }
+
+    /** Room v43: the first-scorable read runs on every strap link-up, so it must SEEK the scorable channels
+     *  through `rrInterval_source_device_ts`; through the (deviceId, ts, ...) key it walked every unlabelled
+     *  beat banked before the first labelled one. srcChannel leads that index because, led by deviceId, SQLite
+     *  took it with `deviceId = ?` alone for the WHOOP 4 and Oura reads and walked the whole device per window,
+     *  so every R-R access a scoring read makes must be bounded by the window or seek a channel. Twin of Swift
+     *  `testRRReadsSeekTheSourceIndexAndNeverWalkADevice`. */
+    @Test fun rrReadsSeekTheSourceIndexAndNeverWalkADevice() {
+        assertEquals(42, WhoopDatabase.MIGRATION_42_43.startVersion)
+        assertEquals(43, WhoopDatabase.MIGRATION_42_43.endVersion)
+        assertEquals(listOf("srcChannel", "deviceId", "ts"),
+            query("PRAGMA index_info(rrInterval_source_device_ts)") { it.getString("name") })
+        val first = query("EXPLAIN QUERY PLAN $FIRST_SCORABLE_WHOOP5_RR_SQL", mapOf("deviceId" to id)) {
+            it.getString("detail")
+        }
+        assertTrue("the first-scorable read does not seek the source index: $first",
+            first.any { it.contains("rrInterval_source_device_ts (srcChannel=? AND deviceId=?)") })
+        val window = mapOf("deviceId" to id, "from" to 0L, "to" to 1000L, "limit" to 100)
+        for (read in listOf(WHOOP5_RR_INTERVALS_SQL, WHOOP4_RR_INTERVALS_SQL, RR_INTERVALS_SQL,
+                LEGACY_WHOOP5_RR_WITHHELD_SQL)) {
+            val plan = query("EXPLAIN QUERY PLAN $read", window) { it.getString("detail") }
+            val rr = plan.filter { Regex("^(SEARCH|SCAN) (rrInterval|r) ").containsMatchIn(it) }
+            assertTrue("no R-R read in the plan: $plan", rr.isNotEmpty())
+            for (line in rr) {
+                assertTrue("an R-R read walks the device: $line", "ts>" in line || "srcChannel=?" in line)
+            }
+        }
     }
 
     @Test fun legacyWithheldStatusUsesExactScoringWindowAndSourcePolicy() = runBlocking {

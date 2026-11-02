@@ -1153,6 +1153,23 @@ extension WhoopStore {
                 t.primaryKey(["deviceId", "ts", "sequence"])
             }
         }
+
+        // v49: lets an R-R read that names its transports SEEK to them instead of walking the device's
+        // history. `firstScorableWhoop5RRTimestamp` runs on every strap link-up, and its MIN(ts) over
+        // `srcChannel IN (5, 7)` had only the (deviceId, ts, ...) key to walk: every unlabelled beat
+        // banked before the first labelled one cost a table lookup. On a 3.85 GB store with 3.57M such
+        // beats that was 14 s and 1.12 GB of cold reads per link-up; through this index it is two seeks.
+        // The owner-tagged EXISTS probes and the windowed WHOOP 5 source reads take it too.
+        //
+        // srcChannel LEADS on purpose. Led by deviceId, SQLite (no sqlite_stat1 here) took the index
+        // with `deviceId = ?` alone for the WHOOP 4 and Oura reads, whose channel filter is an OR /
+        // IS NULL mix it cannot seek, and walked the whole device per window: 13 ms -> 7.4 s on that
+        // store. A read with no channel equality cannot enter this index at all, so it keeps the key.
+        // Twin of Room MIGRATION_42_43.
+        migrator.registerMigration("v49-rr-source-device-index") { db in
+            try db.create(index: "rrInterval_source_device_ts", on: "rrInterval",
+                          columns: ["srcChannel", "deviceId", "ts"])
+        }
         return migrator
     }
 }

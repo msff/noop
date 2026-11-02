@@ -400,6 +400,22 @@
     {
       "type": "platform_specific",
       "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/WhoopDatabase.kt::migrate/1#41",
+      "identity_sha256": "adaa74b3e05b17f100a3b6f0e11995f084ed0bdea2f6246e68ba823d84a3d1b1",
+      "platform": "kotlin",
+      "rationale": "Room Migration.migrate override of MIGRATION_42_43, the rrInterval_source_device_ts index. GRDB registers each migration as a closure (`v49-rr-source-device-index`), so there is no Swift function to pair with; the two are paired by the migration identifiers pinned in schema_oracle.json and by the resulting index, which both suites compare against that oracle."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/WhoopDatabase.kt::RR_SOURCE_DEVICE_INDEX_SQL",
+      "identity_sha256": "c8cf59bbd0b9d0c38d8d9ce985c97098307ff9015f3191ddec330594a2046a01",
+      "platform": "kotlin",
+      "rationale": "The CREATE INDEX that MIGRATION_42_43 runs, held as a constant so the plain-JVM Whoop5RRSqliteTest builds the index Room creates and plans its R-R reads against it. GRDB declares the same index inside the `v49-rr-source-device-index` closure with `db.create(index:on:columns:)`, so there is no Swift constant to pair with; the shape is paired by schema_oracle.json, which both suites compare against. Same arrangement as its sibling RR_SOURCE_INDEX_SQL, which predates the ledger."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
       "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/WhoopRepository.kt::equals/1#1",
       "identity_sha256": "f9252ca90c84703c36280e281fe97e66813a7f897729c6bdd8ed56d321e1a05a",
       "platform": "kotlin",
