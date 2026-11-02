@@ -63,6 +63,61 @@ final class Whoop5RRStoreTests: XCTestCase {
         XCTAssertNil(otherRecorded)
     }
 
+    /// v49: the first-scorable read runs on every strap link-up, so it must SEEK the scorable channels
+    /// through `rrInterval_source_device_ts`. Through the (deviceId, ts, ...) key alone it walked every
+    /// unlabelled beat banked before the first labelled one: 14 s and 1.12 GB cold on a 3.85 GB store.
+    ///
+    /// The second half pins why srcChannel leads that index. With deviceId first, SQLite took it with
+    /// `deviceId = ?` alone for the WHOOP 4 and Oura reads, whose channel filter it cannot seek, and walked
+    /// the whole device on every window. So every R-R access a scoring read makes, under each of the three
+    /// source policies, must be bounded by the window or seek a channel.
+    func testRRReadsSeekTheSourceIndexAndNeverWalkADevice() async throws {
+        let store = try await WhoopStore.inMemory()
+        try registry(store, model: "5.0 MG")
+        let first = try await queryPlans(store) { _ = try await store.firstScorableWhoop5RRTimestamp(deviceId: id) }
+        XCTAssertTrue(first.contains { $0.hasPrefix("SEARCH rrInterval ")
+                                       && $0.contains("rrInterval_source_device_ts (srcChannel=? AND deviceId=?)") },
+                      "the first-scorable read does not seek the source index: \(first)")
+        for (model, brand) in [("5.0 MG", "WHOOP"), ("4.0", "WHOOP"), ("Ring 4", "Oura")] {
+            try registry(store, model: model, brand: brand)
+            let plans = try await queryPlans(store) {
+                _ = try await store.rrIntervals(deviceId: id, from: 0, to: 1000, limit: 100)
+                _ = try await store.legacyWhoop5RRWithheld(deviceId: id, from: 0, to: 1000)
+            }
+            let reads = plans.filter(Self.isRRAccess)
+            XCTAssertFalse(reads.isEmpty, "no R-R read in the \(brand) \(model) plan: \(plans)")
+            for line in reads {
+                XCTAssertTrue(line.contains("ts>") || line.contains("srcChannel=?"),
+                              "\(brand) \(model): an R-R read walks the device: \(line)")
+            }
+        }
+    }
+
+    /// A plan line that reads `rrInterval` itself (`r` is the WHOOP 4 read's alias), not a CTE or join.
+    private static func isRRAccess(_ line: String) -> Bool {
+        let words = line.split(separator: " ")
+        return words.count >= 2 && (words[0] == "SEARCH" || words[0] == "SCAN")
+            && (words[1] == "rrInterval" || words[1] == "r")
+    }
+
+    /// `EXPLAIN QUERY PLAN` of every statement `body` runs. The in-memory store is one `DatabaseQueue`, so a
+    /// trace installed through `registryWriter` sees the store's own reads, with their arguments inlined.
+    private func queryPlans(_ store: WhoopStore, _ body: () async throws -> Void) async throws -> [String] {
+        let captured = CapturedStatements()
+        try await store.registryWriter.writeWithoutTransaction { db in
+            db.trace(options: .statement) { event in
+                if case let .statement(statement) = event { captured.append(statement.expandedSQL) }
+            }
+        }
+        try await body()
+        return try await store.registryWriter.writeWithoutTransaction { db in
+            db.trace(options: [], nil)
+            return try captured.all.flatMap { sql in
+                try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql).map { $0["detail"] as String }
+            }
+        }
+    }
+
     func testHistoricalCanonicalOwnerAfterRePairingUsesActiveWhoop5Policy() async throws {
         let store = try await WhoopStore.inMemory()
         try registry(store, model: "WHOOP")
@@ -323,4 +378,12 @@ final class Whoop5RRStoreTests: XCTestCase {
             XCTAssertNotEqual(d0, d1, "owner policy applies to cached days outside the tagged interval")
         }
     }
+}
+
+/// The statements a trace saw. The trace callback runs on the database's queue, so it is locked.
+private final class CapturedStatements: @unchecked Sendable {
+    private let lock = NSLock()
+    private var statements: [String] = []
+    func append(_ sql: String) { lock.lock(); statements.append(sql); lock.unlock() }
+    var all: [String] { lock.lock(); defer { lock.unlock() }; return statements }
 }

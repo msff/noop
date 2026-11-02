@@ -159,7 +159,8 @@ data class HrWindowStats(
  * Swift widening was still pending; it had already shipped.)
  */
 @Entity(tableName = "rrInterval", primaryKeys = ["deviceId", "ts", "rrMs", "seq"],
-    indices = [Index(value = ["srcChannel", "tsSuspect"], name = "rrInterval_source_suspect")])
+    indices = [Index(value = ["srcChannel", "tsSuspect"], name = "rrInterval_source_suspect"),
+        Index(value = ["srcChannel", "deviceId", "ts"], name = "rrInterval_source_device_ts")])
 data class RrInterval(
     val deviceId: String,
     val ts: Long,

@@ -189,7 +189,8 @@ internal const val FIRST_RECORDED_RR_SQL =
     "AND (tsSuspect IS NULL OR tsSuspect <> 1)"
 
 /** The earliest beat a device has banked that the unit policy can actually score, or null when it has
- *  none at all. Cheap and device-level, not per-day: one indexed MIN over the beats already on disk.
+ *  none at all. Cheap and device-level, not per-day: one seek per scorable channel into
+ *  `rrInterval_source_device_ts` (Room v43), never a walk of the device's history.
  *  Carries the same suspect-timestamp exclusion as the scoring read (#1073), so it cannot name a day
  *  that scoring would then refuse. Twin of Swift `firstScorableWhoop5RRTimestamp`. */
 internal const val FIRST_SCORABLE_WHOOP5_RR_SQL =

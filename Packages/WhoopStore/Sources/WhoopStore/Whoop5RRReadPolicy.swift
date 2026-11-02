@@ -48,7 +48,8 @@ extension WhoopStore {
     /// The earliest beat this device has banked that the unit policy can actually score, or nil when it
     /// has none at all.
     ///
-    /// Cheap and device-level, not per-day: one indexed MIN over the beats already on disk. Carries the
+    /// Cheap and device-level, not per-day: one seek per scorable channel into
+    /// `rrInterval_source_device_ts` (v49), never a walk of the device's history. Carries the
     /// same suspect-timestamp exclusion as the scoring read (#1073), so it cannot name a day that
     /// scoring would then refuse. The caller turns it into a local day key; the calendar is the app's
     /// policy, not the store's.
