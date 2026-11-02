@@ -141,8 +141,10 @@ jobs:
 
   macos:
     needs: meta
-    runs-on: macos-15
-    timeout-minutes: 40
+    # TEST BRANCH ONLY: macos-15 arm64 runners were not acquired twice on 2026-11-02 (capacity). The Intel
+    # image of the same macOS 15 / Xcode keeps the SDK the release uses; it is slower, hence the timeout.
+    runs-on: macos-15-intel
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - name: Install XcodeGen
